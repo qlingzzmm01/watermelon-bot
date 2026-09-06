@@ -20,6 +20,8 @@
   - Microsoft Edge（**Windows 自带**，无 Chrome 也能用）✅
   - Google Chrome ✅ / Brave ✅
 - 斗鱼账号（首次使用需扫码登录一次，之后自动复用）
+- 安装：https://github.com/qlingzzmm01/watermelon-bot/releases/tag/v1.1.0
+  点击下载名称为windows的解压包解压后即可使用
 
 ## 快速开始
 
