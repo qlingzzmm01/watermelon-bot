@@ -22,7 +22,7 @@
 - 斗鱼账号（首次使用需扫码登录一次，之后自动复用）
 - 安装：https://github.com/qlingzzmm01/watermelon-bot/releases/tag/v1.1.0
   点击下载名称为windows的解压包解压后即可使用
-
+  夸克：https://pan.quark.cn/s/4edae0d7b51a?pwd=tTke 提取码：tTke
 ## 快速开始
 
 1. 下载 `合成大西瓜自动化.7z` → 解压到任意目录（建议英文路径或桌面）
