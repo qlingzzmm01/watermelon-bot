@@ -18,14 +18,15 @@ import threading
 import time
 import uuid
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 APP_NAME = "大西瓜自动化"
 
-# 数据上报端点（腾讯云函数 HTTP 触发地址）。留空 = 关闭上报。
-# 配置方法见 server_cloud/README.md：部署云函数后把 https://... 填到这里。
-ENDPOINT = os.environ.get("WM_TELEMETRY_URL", "")
+# 数据上报端点（腾讯云函数 URL，2026-09-06 部署）。留空 = 关闭上报。
+# 若端点失效/更换，改这里或设环境变量 WM_TELEMETRY_URL。
+ENDPOINT = os.environ.get("WM_TELEMETRY_URL",
+    "https://1482167594-9dtxg7k2fy.ap-shanghai.tencentscf.com")
 # 上报鉴权令牌（与云函数环境变量 AUTH_TOKEN 一致；留空=不带鉴权头）
-AUTH_TOKEN = os.environ.get("WM_AUTH_TOKEN", "")
+AUTH_TOKEN = os.environ.get("WM_AUTH_TOKEN", "ik3O7Gu9Uk2EOFJHtJXgmA")
 
 MAX_PENDING = 200          # 本地待补传队列上限（防无限膨胀）
 REPORT_TIMEOUT = 10        # 单次 POST 超时秒数
