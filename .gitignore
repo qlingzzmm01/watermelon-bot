@@ -1,0 +1,30 @@
+# 运行时数据（含登录态与匿名设备ID）——勿提交
+.chrome-profile/
+.chrome-profile-diag/
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec.bak
+
+# 发布产物（二进制 exe 目录 + zip）——走 GitHub Releases，不入仓库
+合成大西瓜自动化/
+合成大西瓜自动化_*.zip
+
+# 本地日志与缓存
+crash.log
+pending_reports.jsonl
+telemetry_id.txt
+rounds_result.txt
+*.png
+fruit_seq.txt
+
+# WorkBuddy 本地工作数据（勿提交公开仓库）
+.workbuddy/
+
+# 桌面版/调试临时
+gui_shot.png
+exe_check.txt
+probe_env.txt
+port_check.txt
+clean.txt
