@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>合成大西瓜 · 自动化控制台</title>
+<style>
+  :root{
+    --bg:#F5F6F8; --card:#FFFFFF; --line:#E5E7EB; --text:#1F2329;
+    --muted:#8A9099; --accent:#0E9F6E; --accent-dark:#0B845B;
+    --warn:#C27803; --danger:#E02424; --shadow:0 1px 3px rgba(16,24,40,.06),0 1px 2px rgba(16,24,40,.04);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:14px/1.6 "Microsoft YaHei UI","PingFang SC",system-ui,sans-serif}
+  header{padding:18px 24px 12px;display:flex;align-items:baseline;gap:12px}
+  h1{margin:0;font-size:19px;font-weight:700}
+  header span{color:var(--muted);font-size:13px}
+  .wrap{display:grid;grid-template-columns:340px 1fr;gap:16px;padding:0 24px 24px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+        box-shadow:var(--shadow);padding:16px}
+  .card h2{margin:0 0 12px;font-size:14px;font-weight:700;color:#111827}
+  label{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px}
+  input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--line);
+      border-radius:8px;font-size:13px;outline:none;background:#fff}
+  input[type=text]:focus{border-color:var(--accent)}
+  .row{display:flex;gap:8px}
+  button{flex:1;padding:10px 14px;border:none;border-radius:9px;font-size:14px;
+         font-weight:600;cursor:pointer;transition:.15s;font-family:inherit}
+  .btn-go{background:var(--accent);color:#fff}
+  .btn-go:hover{background:var(--accent-dark)}
+  .btn-stop{background:#FEE4E2;color:#B42318}
+  .btn-stop:hover{background:#FECDCA}
+  .btn-quit{background:transparent;color:var(--muted);border:1px solid var(--line);font-weight:500;font-size:12px;padding:7px 10px}
+  .btn-quit:hover{color:var(--danger);border-color:var(--danger)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .chk{display:flex;align-items:center;gap:7px;margin-top:12px;font-size:13px;color:#374151}
+  .slider{margin:9px 0}
+  .slider .top{display:flex;justify-content:space-between;font-size:12px;color:#6B7280}
+  .slider .top b{color:var(--text);font-variant-numeric:tabular-nums}
+  input[type=range]{width:100%;accent-color:var(--accent);margin-top:2px}
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px}
+  .stat{background:#F9FAFB;border:1px solid var(--line);border-radius:9px;padding:9px 11px}
+  .stat .k{font-size:11px;color:var(--muted)}
+  .stat .v{font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.3}
+  .badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:12px;font-weight:600}
+  .b-idle{background:#F2F4F7;color:#475467}
+  .b-run{background:#D1FADF;color:#05603A}
+  .b-warn{background:#FEF0C7;color:#93370D}
+  .b-err{background:#FEE4E2;color:#B42318}
+  #stageWrap{display:flex;gap:16px}
+  canvas{background:linear-gradient(180deg,#FFF7E8,#FDEBD0);border-radius:10px;
+         border:1px solid var(--line);display:block}
+  .side{flex:1;min-width:0;display:flex;flex-direction:column}
+  #log{flex:1;height:100%;min-height:300px;overflow:auto;background:#0F172A;color:#CBD5E1;
+       border-radius:10px;padding:12px;font:12px/1.7 Consolas,Monaco,monospace;white-space:pre-wrap}
+  #log .t{color:#64748B}
+  .legend{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:12px;font-size:11px}
+  .legend div{display:flex;align-items:center;gap:5px;color:#4B5563}
+  .dot{width:12px;height:12px;border-radius:50%;flex:none;border:1px solid rgba(0,0,0,.12)}
+  .note{margin-top:14px;padding:11px 13px;background:#FFFAEB;border:1px solid #FDE68A;
+        border-radius:9px;font-size:12.5px;color:#78350F;line-height:1.65}
+  .hint{font-size:12px;color:var(--muted);margin-top:10px;white-space:pre-line}
+</style>
+</head>
+<body>
+<header>
+  <h1>🍉 合成大西瓜 · 自动化控制台</h1>
+  <span>斗鱼互动玩法 · 实时读取游戏内部状态并自动投放</span>
+</header>
+
+<div class="wrap">
+  <!-- 左：控制 -->
+  <div style="display:flex;flex-direction:column;gap:16px">
+    <div class="card">
+      <h2>控制</h2>
+      <label>直播间地址</label>
+      <input type="text" id="room" value="https://www.douyu.com/4042402">
+      <div class="row" style="margin-top:12px">
+        <button class="btn-go" id="btnStart">▶ 开始自动合成</button>
+        <button class="btn-stop" id="btnStop" disabled>■ 停止</button>
+      </div>
+      <label class="chk"><input type="checkbox" id="headless"> 无头模式（不显示浏览器窗口）</label>
+      <div style="margin-top:10px"><button class="btn-quit" id="btnShutdown" title="完全退出本地服务进程">⏻ 关闭服务（退出整个程序）</button></div>
+    </div>
+
+    <div class="card">
+      <h2>运行状态</h2>
+      <div style="margin-bottom:10px"><span class="badge b-idle" id="badge">未启动</span></div>
+      <div class="stats">
+        <div class="stat"><div class="k">投放次数</div><div class="v" id="vDrops">0</div></div>
+        <div class="stat"><div class="k">当前分数</div><div class="v" id="vScore">0</div></div>
+        <div class="stat"><div class="k">最高等级</div><div class="v" id="vLevel">-</div></div>
+        <div class="stat"><div class="k">场上水果</div><div class="v" id="vFruits">-</div></div>
+      </div>
+      <div class="hint" id="vPlan">等待决策…</div>
+    </div>
+
+    <div class="card">
+      <h2>策略权重</h2>
+      <div id="sliders"></div>
+    </div>
+  </div>
+
+  <!-- 右：可视化 + 日志 -->
+  <div style="display:flex;flex-direction:column;gap:16px;min-width:0">
+    <div class="card">
+      <h2>实时场地</h2>
+      <div id="stageWrap">
+        <canvas id="cv" width="380" height="560"></canvas>
+        <div class="side">
+          <div id="log"></div>
+          <div class="legend" id="legend"></div>
+        </div>
+      </div>
+      <div class="note">
+        <b>首次使用：</b>点「开始」后会打开浏览器 → 扫码登录斗鱼 → 在直播间点开左下角「合成大西瓜」进入游戏界面，程序会自动接管投放。登录状态会保存在本地，下次无需重复扫码。
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const FRUITS = {
+  1:['蓝莓','#3E62B1'], 2:['沃柑','#FAA618'], 3:['青橘','#A0CD58'], 4:['火龙果','#E4183F'],
+  5:['猕猴桃','#ADC547'], 6:['苹果','#C5202B'], 7:['桃子','#F98D73'], 8:['菠萝','#F8C430'],
+  9:['椰子','#7B442B'], 10:['半边西瓜','#EA5C3B'], 11:['大西瓜','#518935']
+};
+const SLIDERS = [
+  ['merge_reward','合成收益',0,20000,4000],
+  ['chain_bonus','连锁倍率',1,3,1.6],
+  ['height_penalty','高度惩罚',0,10,1],
+  ['big_on_small_penalty','大压小惩罚',0,200,26],
+  ['flat_bonus','平整奖励',0,60,6],
+  ['samples','采样点数',16,256,96]
+];
+const tuning = {};           // 完整参数（含非滑块项：surface_bonus/edge_penalty 等）
+let curPreset = 'default';
+
+const PRESET_LABELS = {
+  default:'默认 ★ 鲁棒落点', default2:'默认2 · 纯 v1'
+};
+const presetBox = document.createElement('div');
+presetBox.style.cssText = 'display:flex;gap:8px;margin-bottom:12px';
+
+async function loadPresets(){
+  const box = document.getElementById('sliders');
+  box.appendChild(presetBox);
+  try{
+    const r = await fetch('/api/presets'); const d = await r.json();
+    curPreset = d.current || 'default';
+    Object.assign(tuning, d.presets[curPreset] || {});
+    renderPresetButtons(Object.keys(d.presets||{}));
+  }catch(e){ renderPresetButtons(['default','default2']); }
+  buildSliders();
+}
+
+function renderPresetButtons(names){
+  presetBox.innerHTML = '';
+  names.forEach(n=>{
+    const b = document.createElement('button');
+    b.textContent = PRESET_LABELS[n] || n;
+    const active = (n === curPreset);
+    b.style.cssText = 'flex:1;padding:8px 4px;font-size:13px;border-radius:8px;cursor:pointer;'
+      + 'font-weight:600;border:1px solid var(--line);'
+      + (active ? 'background:var(--accent);color:#fff' : 'background:#fff;color:#374151');
+    b.onclick = async()=>{ await applyPreset(n); };
+    presetBox.appendChild(b);
+  });
+}
+
+async function applyPreset(name){
+  try{
+    const r = await fetch('/api/preset',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name})});
+    const d = await r.json();
+    if(d.ok){ Object.assign(tuning, d.tuning); curPreset = name; }
+  }catch(e){}
+  renderPresetButtonsFromCur();
+  buildSliders();
+}
+
+function renderPresetButtonsFromCur(){
+  // 重新渲染按钮以高亮当前选中
+  const names = [...presetBox.children].map(b=>b.textContent);
+  const map = {'默认 ★ 鲁棒落点':'default','默认2 · 纯 v1':'default2'};
+  const cur = Object.keys(PRESET_LABELS).find(k=>PRESET_LABELS[k]===curPreset) || curPreset;
+  presetBox.innerHTML='';
+  names.forEach(t=>{
+    const n = map[t] || t;
+    const b = document.createElement('button');
+    b.textContent = t;
+    const active = (n===cur);
+    b.style.cssText='flex:1;padding:8px 4px;font-size:13px;border-radius:8px;cursor:pointer;'
+      +'font-weight:600;border:1px solid var(--line);'
+      +(active?'background:var(--accent);color:#fff':'background:#fff;color:#374151');
+    b.onclick=async()=>{ await applyPreset(n); };
+    presetBox.appendChild(b);
+  });
+}
+
+function buildSliders(){
+  const box = document.getElementById('sliders');
+  [...box.querySelectorAll('.slider')].forEach(e=>e.remove());
+  SLIDERS.forEach(([k,label,lo,hi])=>{
+    const def = (tuning[k]!==undefined) ? tuning[k] : 0;
+    tuning[k] = def;
+    const d = document.createElement('div'); d.className='slider';
+    d.innerHTML=`<div class="top"><span>${label}</span><b id="val_${k}">${def}</b></div>
+      <input type="range" min="${lo}" max="${hi}" step="${hi<=10?0.1:(hi<=3?0.05:1)}" value="${def}" id="sl_${k}">`;
+    box.appendChild(d);
+    d.querySelector('input').addEventListener('input',e=>{
+      tuning[k]=parseFloat(e.target.value);
+      document.getElementById('val_'+k).textContent=e.target.value;
+      curPreset='custom';
+      renderPresetButtonsFromCur();
+    });
+  });
+}
+loadPresets();
+
+// 图例
+const lg=document.getElementById('legend');
+for(const [k,[name,color]] of Object.entries(FRUITS)){
+  const d=document.createElement('div');
+  d.innerHTML=`<span class="dot" style="background:${color}"></span>${k}·${name}`;
+  lg.appendChild(d);
+}
+
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let last=null;
+
+function draw(st, plan){
+  const W=cv.width, H=cv.height;
+  ctx.clearRect(0,0,W,H);
+  const lay=st.layout;
+  if(!lay){ ctx.fillStyle='#8A9099'; ctx.font='13px sans-serif';
+            ctx.fillText('等待游戏数据…',16,H/2); return; }
+
+  const top=lay.playTop, bot=lay.playBottom, pw=lay.playWidth;
+  const s=Math.min(H/(top-bot), W/pw);
+  const ox=W/2, oy=H;
+  const X=gx=>ox+gx*s, Y=gy=>oy-(gy-bot)*s;
+
+  // 场地边框
+  ctx.strokeStyle='#E3D3B4'; ctx.lineWidth=2;
+  ctx.strokeRect(X(-pw/2), Y(top), pw*s, (top-bot)*s);
+
+  // 死亡线
+  if(lay.dangerY!==undefined){
+    ctx.save(); ctx.setLineDash([7,5]); ctx.strokeStyle='#E02424'; ctx.lineWidth=1.6;
+    ctx.beginPath(); ctx.moveTo(X(-pw/2), Y(lay.dangerY)); ctx.lineTo(X(pw/2), Y(lay.dangerY)); ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle='#E02424'; ctx.font='10px sans-serif';
+    ctx.fillText('死亡线', X(-pw/2)+4, Y(lay.dangerY)-5);
+  }
+
+  // 决策落点
+  if(plan && plan.x!==undefined){
+    ctx.save(); ctx.setLineDash([4,4]); ctx.strokeStyle='#0E9F6E'; ctx.lineWidth=1.6;
+    ctx.beginPath(); ctx.moveTo(X(plan.x), Y(top)); ctx.lineTo(X(plan.x), Y(bot)); ctx.stroke();
+    ctx.restore();
+    const r=(FRUITS[plan.level]?26:26);
+    ctx.fillStyle='rgba(14,159,110,.18)';
+    ctx.beginPath(); ctx.arc(X(plan.x), Y(plan.rest_y!==undefined&&plan.rest_y!==null?plan.rest_y:bot+60), 8*s, 0, 7); ctx.fill();
+  }
+
+  // 水果
+  for(const f of (st.fruits||[])){
+    const info=FRUITS[f.level]||['#999','#999'];
+    const cx=X(f.x), cy=Y(f.y), r=Math.max(3,(f.radius||20)*s);
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,7);
+    ctx.fillStyle=info[1]; ctx.globalAlpha=f.dropped?1:.55; ctx.fill();
+    ctx.globalAlpha=1;
+    ctx.lineWidth=1; ctx.strokeStyle=f.merging?'#0E9F6E':'rgba(0,0,0,.18)'; ctx.stroke();
+    if(f.id===st.currentFruitId){
+      ctx.strokeStyle='#111827'; ctx.lineWidth=2.2; ctx.stroke();
+    }
+    if(r>13){
+      ctx.fillStyle='#fff'; ctx.font=`bold ${Math.min(13,Math.max(9,r*0.55))}px sans-serif`;
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(String(f.level), cx, cy);
+      ctx.textAlign='start'; ctx.textBaseline='alphabetic';
+    }
+  }
+}
+
+const STATUS_TEXT={playing:'运行中',settling:'等待稳定','idle-in-menu':'等待开局',
+  'game-over':'本局结束','waiting-game':'等待游戏加载','waiting-login':'等待登录',
+  binding:'绑定游戏组件','no-game':'未找到游戏','bind-failed':'绑定失败'};
+
+async function tick(){
+  try{
+    const r=await fetch('/api/status'); const d=await r.json();
+    document.getElementById('vDrops').textContent=d.drops;
+    document.getElementById('vScore').textContent=d.score;
+    document.getElementById('vLevel').textContent=d.bestLevel||'-';
+    document.getElementById('vFruits').textContent=(d.state.fruits||[]).filter(f=>f.dropped).length||'-';
+
+    // 实时同步后端 current 预设：UI 之前不轮询，切了预设按钮高亮不刷新
+    try{
+      const pr = await fetch('/api/presets'); const pd = await pr.json();
+      if(pd.current && pd.current !== curPreset){
+        curPreset = pd.current;
+        Object.assign(tuning, pd.presets[curPreset] || {});
+        renderPresetButtons(Object.keys(pd.presets||{}));
+        buildSliders();
+      }
+    }catch(e){}
+
+    const b=document.getElementById('badge');
+    const txt=d.running?(STATUS_TEXT[d.status]||d.status):(d.status==='idle'?'未启动':(STATUS_TEXT[d.status]||d.status));
+    b.textContent=txt;
+    b.className='badge '+(d.running?(d.status==='playing'?'b-run':'b-warn')
+                :(String(d.status).startsWith('error')||d.status==='bind-failed'?'b-err':'b-idle'));
+
+    const p=d.plan;
+    let planTxt='等待决策…';
+    if(p && p.x!==undefined){
+      planTxt=`决策：等级 ${p.level} → 落点 x=${p.x.toFixed(1)}`;
+      if(p.nextFruit!==undefined && p.nextFruit!==null){
+        planTxt+=`　🍉 下一个:lv${p.nextFruit}`+(p.nextStage?`(第${p.nextStage}个)`:'');
+        if(p.fruitQueue && p.fruitQueue.length) planTxt+=`　后续:[${p.fruitQueue.map(l=>'lv'+l).join(',')}]`;
+      }
+    }
+    // 实时投放序列（服务端分段补货，1s 刷新）
+    const q=d.queue;
+    if(q && (q.next!==null || (q.rest&&q.rest.length))){
+      planTxt+=`\n📥 已预取序列: 下一个lv${q.next===null?'?':q.next}(第${q.nextStage??'?'}个)`
+             + `　队列:[${(q.rest||[]).map(l=>'lv'+l).join(',')}]`
+             + (q.inFlight?'（服务端补货中…）':'');
+    } else if(q && q.fruitSeq!==null && q.fruitSeq!==undefined){
+      planTxt+=`\n📥 序列队列已用完，等待服务端补货` + (q.inFlight?'（请求中…）':'');
+    }
+    document.getElementById('vPlan').textContent = planTxt;
+
+    draw(d.state, p);
+
+    // 日志
+    const lgEl=document.getElementById('log');
+    const logs=d.logs||[];
+    const key=logs.length+':'+(logs.length?logs[logs.length-1].t:'');
+    if(lgEl.dataset.key!==key){
+      lgEl.dataset.key=key;
+      lgEl.innerHTML=logs.map(l=>`<span class="t">[${l.t}]</span> ${escapeHtml(l.msg)}`).join('\n');
+      lgEl.scrollTop=lgEl.scrollHeight;
+    }
+    last=d;
+  }catch(e){}
+  setTimeout(tick,400);
+}
+function escapeHtml(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+
+document.getElementById('btnStart').onclick=async()=>{
+  document.getElementById('btnStart').disabled=true;
+  document.getElementById('btnStop').disabled=false;
+  await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({room:document.getElementById('room').value,
+      headless:document.getElementById('headless').checked, tuning})});
+};
+document.getElementById('btnStop').onclick=async()=>{
+  await fetch('/api/stop',{method:'POST'});
+  document.getElementById('btnStart').disabled=false;
+  document.getElementById('btnStop').disabled=true;
+};
+document.getElementById('btnShutdown').onclick=async()=>{
+  if(!confirm('确定关闭本地服务？这会完全退出整个程序（浏览器窗口也会关闭）。')) return;
+  try{ await fetch('/api/shutdown',{method:'POST'}); }catch(e){}
+  document.body.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100vh;font:15px/1.6 sans-serif;color:#555"><div style="text-align:center"><h2 style="margin:0 0 8px">服务已关闭</h2><p>本页面即将无法访问。如需重启，请重新双击 exe。</p></div></div>';
+  setTimeout(()=>window.close(), 1500);
+};
+tick();
+</script>
+</body>
+</html>
