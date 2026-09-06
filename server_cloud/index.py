@@ -25,6 +25,7 @@ import hmac
 import json
 import os
 import time
+import urllib.parse
 
 BUCKET = os.environ.get("COS_BUCKET", "")
 REGION = os.environ.get("COS_REGION", "ap-shanghai")
@@ -33,33 +34,42 @@ SECRET_KEY = os.environ.get("COS_SECRET_KEY", "")
 AUTH_TOKEN = os.environ.get("AUTH_TOKEN", "")
 
 
-def _cos_auth(method, path, host, now, content_type=""):
-    """COS 签名（COS XML API V5，签名算法见官方文档）。"""
-    def hmac_sha1(key, msg):
-        return hmac.new(key.encode(), msg.encode(), hashlib.sha1).digest()
+def _cos_auth(method: str, path: str, now: int) -> str:
+    """腾讯云 COS 签名（V5，标准库实现，与 cos-python-sdk 同算法）。
+    method/path 不带头；headers 不参与签名（服务端允许）。"""
+    def _hmac_hex(key, msg):
+        if isinstance(key, str):
+            key = key.encode("utf-8")
+        if isinstance(msg, str):
+            msg = msg.encode("utf-8")
+        return hmac.new(key, msg, hashlib.sha1).hexdigest()
 
-    key_time = f"{now};{now + 600}"
-    sign_key = hmac_sha1(SECRET_KEY, key_time)
-    fmt = ("sha1\n{method}\n{uri}\n\n{header_str}\n\n".format(
-        method=method, uri=path,
-        header_str=f"host={host}&content-type={content_type}" if content_type
-        else f"host={host}"))
-    signature = hmac_sha1(sign_key, fmt).hexdigest()
-    return (f"q-sign-algorithm=sha1&q-ak={SECRET_ID}&q-sign-time={key_time}"
-            f"&q-key-time={key_time}&q-header-list={'content-type;' if content_type else ''}"
-            f"host&q-url-param-list=&q-signature={signature}")
+    sign_time = f"{now - 60};{now + 600}"
+    # 1) format string: method\npath\nparams\nheaders\n （本请求无 query/签名头）
+    format_str = f"{method.lower()}\n{path}\n\n\n"
+    # 2) sha1 摘要
+    digest = hashlib.sha1(format_str.encode("utf-8")).hexdigest()
+    # 3) string to sign
+    str_to_sign = f"sha1\n{sign_time}\n{digest}\n"
+    # 4) sign key / signature
+    sign_key = _hmac_hex(SECRET_KEY, sign_time)
+    signature = _hmac_hex(sign_key, str_to_sign)
+    return (f"q-sign-algorithm=sha1&q-ak={SECRET_ID}&q-sign-time={sign_time}"
+            f"&q-key-time={sign_time}&q-header-list=&q-url-param-list="
+            f"&q-signature={signature}")
 
 
 def _put_object(key: str, body: bytes, content_type: str = "application/json"):
     import urllib.request
     host = f"{BUCKET}.cos.{REGION}.myqcloud.com"
     now = int(time.time())
-    auth = _cos_auth("PUT", "/" + key, host, now, content_type)
+    auth = _cos_auth("PUT", "/" + key, now)
     req = urllib.request.Request(
         f"https://{host}/{key}", data=body, method="PUT",
         headers={
             "Host": host,
             "Content-Type": content_type,
+            "Content-Length": str(len(body)),
             "Authorization": auth,
         })
     with urllib.request.urlopen(req, timeout=20) as resp:
@@ -94,9 +104,14 @@ def main_handler(event, context):
         now = datetime.datetime.now()
         key = (f"games/{now:%Y/%m/%d}/"
                f"{now:%Y%m%d%H%M%S%f}_{rec.get('device','anon')[:8]}.json")
-        _put_object(key, json.dumps(rec, ensure_ascii=False).encode("utf-8"))
+        raw_json = json.dumps(rec, ensure_ascii=False)
+        if isinstance(raw_json, bytes):
+            raw_json = raw_json.decode("utf-8")
+        _put_object(key, raw_json.encode("utf-8"))
     except Exception as e:
-        return _resp(500, {"error": f"storage fail: {e}"})
+        import traceback
+        tb = traceback.format_exc()
+        return _resp(500, {"error": f"storage fail: {e}", "tb": tb[-600:]})
 
     return _resp(200, {"ok": True, "key": key})
 

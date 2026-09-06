@@ -28,3 +28,7 @@ exe_check.txt
 probe_env.txt
 port_check.txt
 clean.txt
+
+# 部署敏感文件（含腾讯云密钥）——勿提交
+server_cloud/.deploy.json
+tcloud_*.py
