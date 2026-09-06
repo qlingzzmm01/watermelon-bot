@@ -29,10 +29,63 @@ if getattr(sys, "frozen", False):
     ROOT = os.path.dirname(sys.executable)
 else:
     ROOT = os.path.dirname(os.path.abspath(__file__))
-PROFILE = os.path.join(ROOT, ".chrome-profile")
-CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+PROFILE = os.path.join(ROOT, ".chrome-profile")   # 兼容旧值；实际用 _profile_for() 按浏览器区分
+# 不再绑定单一 Chrome：运行时自动探测本机可用的 Chromium 系浏览器
+# （Chrome 优先，其次 Edge/Brave 等），见 _find_browser_exe()。
 # 默认直播间地址：已移除内置链接（2026-09-06），由用户在界面/启动参数中填写。
 ROOM_URL = ""
+
+
+def _find_browser_exe() -> str:
+    """探测本机可用的 Chromium 系浏览器（不绑定单一 Chrome）。
+
+    探测顺序：Chrome → Edge → Brave → 其它 Chromium，来源：
+      1) 注册表 App Paths（覆盖非默认安装路径，最可靠）
+      2) 常见安装路径兜底
+    均未找到返回 ""（调用方给出清晰报错）。
+    """
+    import winreg
+
+    # ① 注册表 App Paths（HKCU 优先于 HKLM，一般均存在）
+    names = ("chrome.exe", "msedge.exe", "brave.exe", "chromium.exe")
+    for hive_name in ("HKCU", "HKLM"):
+        hive = winreg.HKEY_CURRENT_USER if hive_name == "HKCU" else winreg.HKEY_LOCAL_MACHINE
+        for name in names:
+            try:
+                key = winreg.OpenKey(hive, rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{name}")
+                try:
+                    exe, _ = winreg.QueryValueEx(key, None)
+                    if exe and os.path.isfile(exe):
+                        return exe
+                finally:
+                    winreg.CloseKey(key)
+            except OSError:
+                continue
+
+    # ② 常见安装路径兜底（按 Chrome→Edge→Brave 优先级）
+    env = os.environ
+    cands = [
+        env.get("ProgramFiles", r"C:\Program Files") + r"\Google\Chrome\Application\chrome.exe",
+        env.get("ProgramFiles(x86)", r"C:\Program Files (x86)") + r"\Google\Chrome\Application\chrome.exe",
+        env.get("LOCALAPPDATA", "") + r"\Google\Chrome\Application\chrome.exe",
+        env.get("ProgramFiles(x86)", r"C:\Program Files (x86)") + r"\Microsoft\Edge\Application\msedge.exe",
+        env.get("ProgramFiles", r"C:\Program Files") + r"\Microsoft\Edge\Application\msedge.exe",
+        env.get("ProgramFiles", r"C:\Program Files") + r"\BraveSoftware\Brave-Browser\Application\brave.exe",
+    ]
+    for p in cands:
+        if p and os.path.isfile(p):
+            return p
+    return ""
+
+
+def _profile_for(exe: str) -> str:
+    """不同浏览器内核用独立 profile（避免跨内核 profile 冲突；登录态各自保存）。"""
+    name = os.path.basename(exe or "").lower()
+    if "edge" in name:
+        return os.path.join(ROOT, ".edge-profile")
+    if "brave" in name:
+        return os.path.join(ROOT, ".brave-profile")
+    return PROFILE
 
 # 在 iframe 内定位 WatermelonGame 组件实例并挂到 window.__WM_GAME
 FIND_GAME_JS = r"""
@@ -396,19 +449,22 @@ class WatermelonBot:
         self._pw = None
         self._page = None
         # 确保浏览器进程彻底退出，避免残留占用 profile 导致下次启动秒退
-        self._kill_stale_chrome()
-        self._clean_profile_locks()
+        exe = getattr(self, "_browser_exe", "") or _find_browser_exe()
+        self._kill_stale_browser(exe)
+        self._clean_profile_locks(exe)
 
-    def _kill_stale_chrome(self):
-        """杀掉仍占用 PROFILE 的残留 chrome.exe（否则新实例秒退，TargetClosedError）。"""
+    def _kill_stale_browser(self, exe: str):
+        """杀掉仍占用对应 profile 的残留浏览器进程（chrome/msedge/brave 均可）。"""
         try:
             import subprocess
             import tempfile
-            ps1 = os.path.join(tempfile.gettempdir(), "kill_wm_chrome.ps1")
+            name = os.path.basename(exe or "chrome.exe")
+            prof = _profile_for(exe)
+            ps1 = os.path.join(tempfile.gettempdir(), "kill_wm_browser.ps1")
             with open(ps1, "w", encoding="utf-8-sig") as f:
                 f.write(
-                    "$p = Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
-                    "Where-Object { $_.CommandLine -like '*" + PROFILE + "*' };\n"
+                    "$p = Get-CimInstance Win32_Process -Filter \"Name='" + name + "'\" | "
+                    "Where-Object { $_.CommandLine -like '*" + prof + "*' };\n"
                     "if ($p) { $p | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }\n"
                 )
             subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ps1],
@@ -416,10 +472,11 @@ class WatermelonBot:
         except Exception:
             pass
 
-    def _clean_profile_locks(self):
+    def _clean_profile_locks(self, exe: str):
+        prof = _profile_for(exe)
         for lock in ("SingletonLock", "SingletonSocket", "SingletonCookie",
                      "lockfile", "DevToolsActivePort"):
-            p = os.path.join(PROFILE, lock)
+            p = os.path.join(prof, lock)
             try:
                 if os.path.exists(p):
                     os.remove(p)
@@ -430,15 +487,22 @@ class WatermelonBot:
         from playwright.sync_api import sync_playwright
         if self._ctx:
             return
-        self._kill_stale_chrome()
-        self._clean_profile_locks()
+        exe = _find_browser_exe()
+        if not exe:
+            raise RuntimeError(
+                "未检测到 Chrome / Edge / Brave 等 Chromium 浏览器。\n"
+                "请先安装 Microsoft Edge（Windows 自带，商店可装）或 Google Chrome，再重新启动。")
+        self.log(f"使用浏览器: {os.path.basename(exe)}")
+        self._browser_exe = exe
+        self._kill_stale_browser(exe)
+        self._clean_profile_locks(exe)
         last_err = None
         for attempt in range(3):
             try:
                 self._pw = sync_playwright().start()
                 self._ctx = self._pw.chromium.launch_persistent_context(
-                    user_data_dir=PROFILE,
-                    executable_path=CHROME,
+                    user_data_dir=_profile_for(exe),
+                    executable_path=exe,
                     headless=headless,
                     viewport={"width": 1500, "height": 940},
                     args=["--disable-blink-features=AutomationControlled",
@@ -455,10 +519,10 @@ class WatermelonBot:
                 except Exception:
                     pass
                 self._pw = None
-                self._kill_stale_chrome()
-                self._clean_profile_locks()
+                self._kill_stale_browser(exe)
+                self._clean_profile_locks(exe)
                 time.sleep(2)
-        raise RuntimeError(f"Chrome 启动失败(3次): {last_err}")
+        raise RuntimeError(f"浏览器启动失败(3次): {last_err}")
 
     def _find_game_frame(self, page, timeout: float = 600.0):
         """等待并返回真正的游戏 frame（含 WatermelonGame 组件的 Cocos 画面）。
