@@ -23,8 +23,8 @@
 
 ## 快速开始
 
-1. 安装：https://github.com/qlingzzmm01/watermelon-bot/releases/tag/v1.1.0 点击下载名称为windows的解压包解压后即可使用 夸克：https://pan.quark.cn/s/4edae0d7b51a?pwd=tTke 提取码：tTke
-2. 双击 `合成大西瓜自动化.exe`
+1. 安装：https://github.com/qlingzzmm01/watermelon-bot/releases/tag/v1.1.0 点击下载名称为windows的解压包解压后即可使用 夸克：https://pan.quark.cn/s/5dbd420f1be4?pwd=sjFm
+提取码：sjFm
 3. 粘贴一个**斗鱼直播间地址**（必须：软件不再内置任何直播间）：
    ```
    例如：https://www.douyu.com/4042402
