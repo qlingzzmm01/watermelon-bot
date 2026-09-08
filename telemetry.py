@@ -18,7 +18,7 @@ import threading
 import time
 import uuid
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 APP_NAME = "大西瓜自动化"
 
 # 数据上报端点（腾讯云函数 URL，2026-09-06 部署）。留空 = 关闭上报。

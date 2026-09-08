@@ -120,6 +120,11 @@ class Tuning:
                                        # >0 时对每个候选做 ±amp/2 三点模拟，取平均评分——
                                        # 对抗 simulate_drop ~133px 真实误差：选「宽谷/平底」鲁棒位
                                        # 而非只对单个模拟点最优（模拟偏一点就掉进别处）的窄尖峰。
+    robust_big_level: int = 0          # 大果单点精确开关：落果等级 ≥ 此值时关闭 robust 扰动，
+                                       # 直接用单点模拟评分。动机：lv8+ 合成（尤其 lv10+lv10→lv11）
+                                       # 依赖「精确落入合成窄点」，三点平均会把这类窄尖峰摊平，
+                                       # 导致第二颗大果宁可放别处也不去贴第一颗——lvl10 配对失败主因之一。
+                                       # 0 = 关闭（所有等级一律 robust）。
     beam_width: int = 1                # 方案②滚动时域前瞻：每层保留的路径数（1=贪心=现状）。
                                        # >1 时对未来序列做 beam search：不再每步只取单个最优落点，
                                        # 而是保留前 beam_width 个布局分头演化——能发现「暂时少合一步、
@@ -151,6 +156,7 @@ PRESETS = {
         isolated_penalty=700.0,      # 孤立大果惩罚
         milestone_reward=9000.0,     # 前瞻里推高最高等级的奖励
         robust_amp=45.0,             # 鲁棒落点：±22px 三点扰动取平均评分（抗模拟误差）
+        robust_big_level=8,          # 大果(lv≥8)单点精确：合成窄尖峰不被扰动平均摊平
         height_penalty=4.0,          # 压堆高
         danger_penalty=70000.0,
         surface_bonus=1.5,
@@ -620,6 +626,8 @@ def _score_drop(field: Field, cx: float, level: int, radius: float,
     落点在邻域扰动下评分稳定，才是可信决策点。
     """
     amp = tuning.robust_amp
+    if amp > 0 and tuning.robust_big_level > 0 and level >= tuning.robust_big_level:
+        amp = 0.0    # 大果精确配对：禁用扰动平均，取单点模拟（见 robust_big_level 注释）
     if amp <= 0:
         fx, fy = simulate_drop(field, cx, radius, tuning)
         sc = evaluate(field, level, fx, fy, radius, tuning)

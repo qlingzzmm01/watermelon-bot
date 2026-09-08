@@ -32,3 +32,11 @@ clean.txt
 # 部署敏感文件（含腾讯云密钥）——勿提交
 server_cloud/.deploy.json
 tcloud_*.py
+
+# 内部资料不上 GitHub（本地保留）
+发布指引.md
+server_cloud/
+# 宣传物料（本地保留，不上库）
+promo/
+合成大西瓜自动化_宣传片.mp4
+.room_url.txt

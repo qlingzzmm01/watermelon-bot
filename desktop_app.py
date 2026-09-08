@@ -73,6 +73,8 @@ class DesktopApp:
         self._logs_done = 0
         self._cur_preset = "default"
         self._reported_games = 0            # 已上报局数游标（game_history 增量检测）
+        self._room_file = os.path.join(_ROOT, ".room_url.txt")
+        self._room_saved = ""
 
         root.title("🍉 合成大西瓜 · 桌面自动化")
         root.geometry("1180x800")
@@ -91,6 +93,21 @@ class DesktopApp:
         self._tick()                          # 启动周期刷新
         root.after(150, self._poll_logs)
 
+    # 直播间地址持久化（记住上次填的，重启免重填）
+    def _load_room(self) -> str:
+        try:
+            with open(self._room_file, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        except Exception:
+            return ""
+
+    def _save_room(self):
+        try:
+            with open(self._room_file, "w", encoding="utf-8") as f:
+                f.write(self.room_var.get().strip())
+        except Exception:
+            pass
+
     # ---------------- UI ----------------
     def _build_ui(self):
         pad = {"padx": 10, "pady": 6}
@@ -105,8 +122,12 @@ class DesktopApp:
         ctl.pack(fill="x", padx=4, pady=4)
 
         ttk.Label(ctl, text="直播间地址（必填，如 https://www.douyu.com/123456）").pack(anchor="w", padx=8, pady=(6, 0))
-        self.room_var = tk.StringVar(value="")
-        ttk.Entry(ctl, textvariable=self.room_var).pack(fill="x", padx=8, pady=4)
+        self.room_var = tk.StringVar(value=self._load_room())
+        room_entry = ttk.Entry(ctl, textvariable=self.room_var)
+        room_entry.pack(fill="x", padx=8, pady=4)
+        # 填完即存：回车或焦点离开时保存，点「开始」也兜底保存
+        room_entry.bind("<Return>", lambda _e: self._save_room())
+        room_entry.bind("<FocusOut>", lambda _e: self._save_room())
 
         self.headless_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(ctl, text="无头模式（不显示浏览器窗口）",
@@ -197,6 +218,7 @@ class DesktopApp:
             messagebox.showwarning("缺少直播间地址", "请先填写直播间地址，\n如：https://www.douyu.com/123456")
             return
         headless = bool(self.headless_var.get())
+        self._save_room()                   # 记住直播间，重启免重填
         self.btn_start.config(state="disabled")
         self.btn_stop.config(state="normal")
         threading.Thread(target=self.bot.start,
@@ -270,6 +292,14 @@ class DesktopApp:
         """每 300ms 刷新状态卡片 / 画布 / 决策信息 / 对局上报。"""
         try:
             self._report_new_games()
+            # 直播间自动保存：检测到变化立即写盘（用户填完即存，不依赖回车/点开始）
+            try:
+                cur = self.room_var.get().strip()
+                if cur != self._room_saved:
+                    self._save_room()
+                    self._room_saved = cur
+            except Exception:
+                pass
             st = self.bot.stats
             self.badge_var.set(STATUS_TEXT.get(st.status, st.status))
             self.stats["drops"].set(str(st.drops))
