@@ -648,8 +648,10 @@ class WatermelonBot:
         last_drop_at = 0.0
         prev_fruit_count = 0
         # 分析采集（对局级，每局重置）
-        self._milestones = []          # 每突破一个等级记录 [{lv, atDrop, score}]
+        self._milestones = []          # 每突破一个等级记录 [{lv, atDrop(本局第几投), score}]
         self._milestone_max = 0
+        self._layout_snapshot = []     # 死亡前最后一次 isPlaying 的水果快照（gameOver 后场地会清空）
+        self._seq_trace = []           # 服务端序列窗口追踪（诊断）
         # 重启保护：state.gameOver=true 在上一局结算后可能短暂残留，
         # 必须先观察到 isPlaying=true（即新一局真正开始过），才能承认新一轮的 gameOver。
         # 否则 bot 会陷入"放弃复活 → 立刻判 gameOver → 又放弃复活 → …"的 4 秒一局死循环。
@@ -677,10 +679,11 @@ class WatermelonBot:
             n11 = sum(1 for f in fruits if (f.get("level") or 0) >= MAX_LEVEL)    # 同屏西瓜数
             if n11 > self.stats.peak_watermelons:
                 self.stats.peak_watermelons = n11
-            # 分析采集：每突破一个新等级，记录当时的投放进度/分数（合成路径断点）
+            # 分析采集：每突破一个新等级，记录当时的本局投放进度/分数（合成路径断点）
             if lvl > self._milestone_max:
                 self._milestone_max = lvl
-                self._milestones.append({"lv": lvl, "atDrop": self.stats.drops,
+                self._milestones.append({"lv": lvl,
+                                         "atDrop": self.stats.drops - getattr(self, "_drops_at_start", 0),
                                          "score": self.stats.score})
 
             # 持续刷新投放序列（服务端下发的序列窗口，一有变化立即记录）
@@ -698,6 +701,18 @@ class WatermelonBot:
                         sig = (nlv, tuple(rest_lv), q.get("fruitSeq"))
                         if sig != getattr(self, "_last_qsig", None):
                             self._last_qsig = sig
+                            # 序列追踪（诊断用）：每颗窗口变化记一次
+                            try:
+                                if nlv is not None:
+                                    self._seq_trace.append({
+                                        "seq": q.get("fruitSeq"),
+                                        "next": nlv,
+                                        "rest": list(rest_lv),
+                                        "drop_no": self.stats.drops,
+                                        "max_lv": max([f.get("level", 0) for f in fruits] or [0]),
+                                    })
+                            except Exception:
+                                pass
                             if nlv is None and not rest_lv:
                                 # 窗口耗尽：区分「正在补货」与「服务端序列已发完（本地续投）」
                                 if q.get("inFlight"):
@@ -716,6 +731,9 @@ class WatermelonBot:
             if state.get("isPlaying"):
                 # 标记本局确实"开始过"——之后的 gameOver 才能被承认
                 played_this_round = True
+                # 死亡前快照：场地有水果时持续刷新（gameOver 后水果会被清空）
+                if fruits:
+                    self._layout_snapshot = fruits
             if state.get("gameOver") and played_this_round:
                 self.stats.status = "game-over"
                 self.stats.drops_this_round = self.stats.drops - getattr(self, "_drops_at_start", 0)
@@ -729,7 +747,8 @@ class WatermelonBot:
                     "watermelons": self.stats.peak_watermelons,
                     "drops": self.stats.drops_this_round,
                     "milestones": list(getattr(self, "_milestones", [])),     # 合成路径断点
-                    "finalLayout": _simplify_layout(state.get("fruits") or []),  # 死亡布局
+                    "finalLayout": _simplify_layout(getattr(self, "_layout_snapshot", None)
+                                                    or state.get("fruits") or []),  # 死亡布局
                 })
                 self.game_history = hist[-20:]   # 只留最近 20 局
                 self.log(f"📊 本局战绩: 最高 lv{self.stats.best_level_game}  "
