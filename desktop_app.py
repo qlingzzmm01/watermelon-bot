@@ -173,6 +173,16 @@ class DesktopApp:
                   justify="left", font=("Microsoft YaHei UI", 9),
                   foreground="#444").pack(anchor="w", padx=8, pady=(6, 8))
 
+        # 付费防护状态（集结令/鱼翅/充值一律不点）
+        guard_box = ttk.LabelFrame(run, text=" 🛡 付费防护 ")
+        guard_box.pack(fill="x", padx=6, pady=(0, 6))
+        self.guard_var = tk.StringVar(value="已启用 · 拦截 0 次 · 弹层 0 次")
+        ttk.Label(guard_box, textvariable=self.guard_var, font=("Microsoft YaHei UI", 9, "bold"),
+                  foreground="#0E9F6E").pack(anchor="w", padx=8, pady=4)
+        ttk.Label(guard_box, text="涉及集结令/鱼翅/充值/兑换/送礼的目标一律不点；\n检测到付费弹层只关闭、不确认。",
+                  font=("Microsoft YaHei UI", 8), foreground="#8A9099",
+                  justify="left").pack(anchor="w", padx=8, pady=(0, 6))
+
         # 数据上报开关（opt-in）
         self.telemetry_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(run, text="匿名上报对局数据（用于策略优化，不含账号/直播间）",
@@ -310,6 +320,13 @@ class DesktopApp:
             n_fruits = len([f for f in (self.bot.last_state or {}).get("fruits", [])
                             if f.get("dropped")]) if self.bot.last_state else 0
             self.stats["fruits"].set(str(n_fruits or "-"))
+            # 付费防护状态
+            try:
+                b = getattr(self.bot, "blocked_clicks", 0)
+                h = getattr(self.bot, "paywall_hits", 0)
+                self.guard_var.set(f"已启用 · 拦截 {b} 次 · 弹层 {h} 次")
+            except Exception:
+                pass
 
             p = self.bot.last_plan or {}
             if p.get("x") is not None:

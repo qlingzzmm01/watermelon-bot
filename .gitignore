@@ -18,6 +18,7 @@ telemetry_id.txt
 rounds_result.txt
 *.png
 fruit_seq.txt
+logs/
 
 # WorkBuddy 本地工作数据（勿提交公开仓库）
 .workbuddy/
@@ -40,3 +41,6 @@ server_cloud/
 promo/
 合成大西瓜自动化_宣传片.mp4
 .room_url.txt
+
+# 本地清理备份区（临时，勿提交）
+.trash-backup-*/

@@ -24,6 +24,10 @@ from dataclasses import dataclass
 import solver as solver_module
 from solver import choose_drop_x, parse_debug_state, Tuning, MAX_LEVEL, replace as _tuning_replace
 
+# 付费弹层哨兵：保证 bot 永不消耗鱼翅（集结令/充值/兑换一律不点）
+import guard as guard_module
+from guard import Sentinel, ClickAudit, is_danger_text, is_click_allowed, economic_gate
+
 # 打包为 exe 后：数据目录 = exe 所在目录（登录态/配置持久化）；源码模式 = 脚本目录
 if getattr(sys, "frozen", False):
     ROOT = os.path.dirname(sys.executable)
@@ -249,6 +253,11 @@ class WatermelonBot:
         self._pw = None
         self._ctx = None
         self._page = None
+        # —— 付费防护（2026-10-13）——
+        self.audit = ClickAudit(ROOT, log=log)
+        self.sentinel = Sentinel(log=log, audit=self.audit)
+        self.blocked_clicks = 0      # 累计拦截次数（供 UI 展示）
+        self.paywall_hits = 0        # 累计检测到付费弹层次数
 
     # ---------- 生命周期 ----------
     def _try_enter_game(self, page):
@@ -257,6 +266,10 @@ class WatermelonBot:
         仅在面板尚未出现时调用；面板一旦出现 bot 绝不再点，避免反复 toggle。
         """
         try:
+            # 付费防护：入口前方若有弹层，先处理弹层，本轮不点入口
+            if self.sentinel.handle(page, ctx="点开入口前"):
+                self.paywall_hits += 1
+                return False
             cand = page.evaluate("""() => {
               const vis = el => el && el.offsetParent !== null && el.getClientRects().length > 0;
               const norm = s => (s || '').replace(/\\s+/g, '');
@@ -282,7 +295,12 @@ class WatermelonBot:
             }""")
             if not cand:
                 return False
+            # 二次校验：命中的入口元素不得含付费字样
+            if is_danger_text(cand.get("cls", "")) or is_danger_text(cand.get("tag", "")):
+                self.audit.record("合成大西瓜入口", False, "入口元素含危险词")
+                return False
             page.mouse.click(cand["x"], cand["y"])
+            self.audit.record("合成大西瓜入口", True, "游戏入口", coords=(cand["x"], cand["y"]))
             self.log(f"已点开「合成大西瓜」入口 <{cand['tag']}> @({cand['x']:.0f},{cand['y']:.0f})")
             return True
         except Exception:
@@ -293,7 +311,17 @@ class WatermelonBot:
 
         某些入口是 DOM 元素而非 canvas 绘制，坐标点击/场景查找都无效，只能 DOM 匹配。
         """
+        # 付费防护：危险词硬拒 + 弹层巡检
+        allowed, why = is_click_allowed(text)
+        if not allowed:
+            self.blocked_clicks += 1
+            self.audit.record(text, False, why)
+            self.log(f"🛡 拒绝点击 DOM 按钮「{text}」（{why}）")
+            return False
         try:
+            if self.sentinel.handle(vibe, ctx=f"点「{text}」前"):
+                self.paywall_hits += 1
+                return False
             r = vibe.evaluate("""(text) => {
               const vis = el => el && el.offsetParent !== null && el.getClientRects().length > 0;
               const norm = s => (s || '').replace(/\\s+/g, '');
@@ -316,6 +344,10 @@ class WatermelonBot:
             }""", text)
             if not r:
                 return False
+            if is_danger_text(r.get("cls", "")):
+                self.blocked_clicks += 1
+                self.audit.record(text, False, "目标 DOM 元素含危险词")
+                return False
             box = None
             try:
                 box = vibe.frame_element().bounding_box()
@@ -324,6 +356,7 @@ class WatermelonBot:
             sx = r["x"] + (box["x"] if box else 0)
             sy = r["y"] + (box["y"] if box else 0)
             self._page.mouse.click(sx, sy)
+            self.audit.record(text, True, "DOM 白名单", coords=(sx, sy))
             self.log(f"已点击 DOM 按钮「{text}」@({sx:.0f},{sy:.0f})")
             return True
         except Exception:
@@ -334,10 +367,24 @@ class WatermelonBot:
                       fallback_fx: float = 0.5) -> bool:
         """点击游戏内 Cocos 按钮（如「开始游戏」）。
 
+        ⚠️ 付费防护（2026-10-13）：
+          1. 目标文字命中危险词（集结令/鱼翅/充值/兑换/送礼/复活…）→ 直接拒绝，绝不点击；
+          2. 每次点击前先跑弹层哨兵：发现付费弹层 → 只关闭不确认，本轮不执行本次点击；
+          3. **坐标兜底仅在「页面上没有任何弹层」时才允许**（兜底坐标会落在弹层上，
+             历史误扣鱼翅正是这条路径）。
+
         优先在场景中找文字/按钮节点，把世界坐标换算成屏幕坐标后点击；
         找不到节点时用画布比例坐标兜底（fallback_fx, fallback_ratio 为 0~1）。
         「开始游戏」位于画布右下 (0.75, 0.92)。
         """
+        # —— 第 0 道闸：危险词硬拦截（无论如何都不点）——
+        allowed, why = is_click_allowed(text)
+        if not allowed:
+            self.blocked_clicks += 1
+            self.audit.record(text, False, why)
+            self.log(f"🛡 拒绝点击「{text}」（{why}）——涉及付费，绝不点击")
+            return False
+
         vibe = None
         for f in page.frames:
             if 'vibe-lab' in (f.url or ''):
@@ -350,6 +397,11 @@ class WatermelonBot:
         grace = min(3.0, max(1.0, timeout * 0.4))   # 找节点宽限期，之后坐标兜底
         miss_logged = False
         while time.time() < deadline and not self._stop.is_set():
+            # —— 第 1 道闸：弹层哨兵（每轮点击尝试前先检查）——
+            if self.sentinel.handle(page, ctx=f"点击「{text}」前"):
+                self.paywall_hits += 1
+                time.sleep(0.6)
+                continue          # 弹层在：本轮不点，交给哨兵关闭后下一轮重试
             # 第 1 优先：vibe frame 内的 React DOM 按钮（面板本身是 React + canvas 混合）
             try:
                 dom = vibe.evaluate("""(text) => {
@@ -374,11 +426,18 @@ class WatermelonBot:
             except Exception:
                 dom = None
             if dom:
+                # 双重校验：命中的 DOM 元素类名/文本也不能含危险词
+                if is_danger_text(dom.get("cls", "")) or is_danger_text(dom.get("tag", "")):
+                    self.blocked_clicks += 1
+                    self.audit.record(text, False, "命中元素含危险词", coords=(dom["x"], dom["y"]))
+                    self.log(f"🛡 拒绝点击「{text}」：目标元素疑似付费控件")
+                    return False
                 try:
                     fbox = vibe.frame_element().bounding_box()
                     sx = (fbox["x"] if fbox else 0) + dom["x"]
                     sy = (fbox["y"] if fbox else 0) + dom["y"]
                     page.mouse.click(sx, sy)
+                    self.audit.record(text, True, "React DOM 白名单", coords=(sx, sy))
                     self.log(f"已点击 React DOM「{text}」<{dom['tag']}> {dom['cls']} @({sx:.0f},{sy:.0f})")
                     return True
                 except Exception:
@@ -389,19 +448,32 @@ class WatermelonBot:
             except Exception:
                 box, r = None, None
             if box and r and r.get("found") and r.get("visW"):
+                # 节点名含危险词也拒绝
+                if is_danger_text(r.get("name", "")):
+                    self.blocked_clicks += 1
+                    self.audit.record(text, False, f"场景节点名含危险词: {r.get('name')}")
+                    self.log(f"🛡 拒绝点击「{text}」：场景节点 {r.get('name')} 疑似付费控件")
+                    return False
                 sx = box["x"] + box["width"] / 2 + r["x"] * (box["width"] / r["visW"])
                 sy = box["y"] + box["height"] / 2 - r["y"] * (box["height"] / r["visH"])
                 try:
                     page.mouse.click(sx, sy)
+                    self.audit.record(text, True, "Cocos 场景节点", coords=(sx, sy))
                     self.log(f"已点击「{text}」@({sx:.0f},{sy:.0f}) [{r.get('name')}]")
                     return True
                 except Exception:
                     pass
             elif box and fallback_ratio is not None and time.time() - start_t > grace:
+                # ⚠️ 坐标兜底：必须确认屏幕上没有任何弹层，否则可能点到「兑换确认」
+                if self.sentinel.overlay_present(page):
+                    self.log(f"🛡 检测到遮挡层，「{text}」坐标兜底已跳过（防误点付费控件）")
+                    time.sleep(1.0)
+                    continue
                 sx = box["x"] + box["width"] * fallback_fx
                 sy = box["y"] + box["height"] * fallback_ratio
                 try:
                     page.mouse.click(sx, sy)
+                    self.audit.record(text, True, "无弹层时的坐标兜底", coords=(sx, sy))
                     self.log(f"已点击「{text}」(坐标兜底 fx={fallback_fx:.0%} y={fallback_ratio:.0%}) @({sx:.0f},{sy:.0f})")
                     return True
                 except Exception:
@@ -542,7 +614,15 @@ class WatermelonBot:
         start_positions = [(0.75, 0.92), (0.5, 0.92), (0.5, 0.5), (0.5, 0.85)]
         pos_idx = 0
         last_fbclick = 0.0
+        last_sentinel = 0.0
         while time.time() < deadline and not self._stop.is_set():
+            # —— 弹层哨兵：常驻巡检（每 3s 一次），发现付费弹层只关闭、绝不确认 ——
+            if time.time() - last_sentinel > 3.0:
+                last_sentinel = time.time()
+                if self.sentinel.handle(page, ctx="等待开局"):
+                    self.paywall_hits += 1
+                    time.sleep(1.0)
+                    continue          # 弹层优先处理，本轮不尝试点「开始游戏」
             frames = [f for f in page.frames
                       if (f.url or "") not in (None, "", "about:blank")]
             for f in frames:
@@ -657,8 +737,16 @@ class WatermelonBot:
         # 否则 bot 会陷入"放弃复活 → 立刻判 gameOver → 又放弃复活 → …"的 4 秒一局死循环。
         played_this_round = False
         start_at = time.time()
+        last_sentinel = 0.0
 
         while not self._stop.is_set():
+            # —— 弹层哨兵：局内每 4s 巡检一次（道具/复活弹层一律只关不确认）——
+            if time.time() - last_sentinel > 4.0:
+                last_sentinel = time.time()
+                if self.sentinel.handle(page, ctx="对局中"):
+                    self.paywall_hits += 1
+                    time.sleep(0.8)
+                    continue
             try:
                 state = frame.evaluate(READ_STATE_JS)
             except Exception as e:

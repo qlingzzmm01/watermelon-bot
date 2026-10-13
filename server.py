@@ -132,6 +132,11 @@ class Handler(BaseHTTPRequestHandler):
                 "bestLevelGame": BOT.stats.best_level_game,
                 "peakWatermelons": BOT.stats.peak_watermelons,
                 "gameNo": getattr(BOT, "_game_no", 0),
+                "guard": {
+                    "blocked": getattr(BOT, "blocked_clicks", 0),
+                    "paywallHits": getattr(BOT, "paywall_hits", 0),
+                    "lastPaywall": getattr(getattr(BOT, "sentinel", None), "last_paywall", None),
+                },
                 "gameHistory": list(getattr(BOT, "game_history", []) or []),
                 "plan": BOT.last_plan,
                 "queue": {

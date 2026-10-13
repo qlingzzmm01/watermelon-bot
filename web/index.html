@@ -97,6 +97,18 @@
     </div>
 
     <div class="card">
+      <h2>🛡 付费防护</h2>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <span class="badge b-run" id="guardBadge">已启用</span>
+        <span class="hint" style="margin:0">拦截 <b id="vBlocked">0</b> 次 · 弹层 <b id="vPaywall">0</b> 次</span>
+      </div>
+      <div class="hint" style="margin:0">
+        涉及<b>集结令 / 鱼翅 / 充值 / 兑换 / 送礼</b>的目标一律不点；<br>
+        检测到付费弹层只关闭、不确认。
+      </div>
+    </div>
+
+    <div class="card">
       <h2>策略权重</h2>
       <div id="sliders"></div>
     </div>
@@ -296,6 +308,12 @@ async function tick(){
     document.getElementById('vScore').textContent=d.score;
     document.getElementById('vLevel').textContent=d.bestLevel||'-';
     document.getElementById('vFruits').textContent=(d.state.fruits||[]).filter(f=>f.dropped).length||'-';
+    // 付费防护状态
+    try{
+      const g=d.guard||{};
+      document.getElementById('vBlocked').textContent=g.blocked||0;
+      document.getElementById('vPaywall').textContent=g.paywallHits||0;
+    }catch(e){}
 
     // 实时同步后端 current 预设：UI 之前不轮询，切了预设按钮高亮不刷新
     try{
