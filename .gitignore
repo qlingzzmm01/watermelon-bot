@@ -33,6 +33,8 @@ clean.txt
 # 部署敏感文件（含腾讯云密钥）——勿提交
 server_cloud/.deploy.json
 tcloud_*.py
+gh_push.py
+gh_release_upload.py
 
 # 内部资料不上 GitHub（本地保留）
 发布指引.md
