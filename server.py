@@ -59,17 +59,31 @@ def pack_tuning(t: Tuning) -> dict:
 
 
 def tuning_from_dict(d: dict) -> Tuning:
+    """把前端/JSON 传来的 dict 还原成 Tuning。
+
+    ⚠️ solver.py 有 `from __future__ import annotations`，dataclass 字段的
+    `.type` 是**字符串** `'int'` 而不是类型对象，用 `f.type is int` 永远为 False，
+    会导致 samples / sim_max_iter / beam_width 等整型字段被转成 float，
+    进而在 `range(samples)` 处抛 `TypeError: 'float' object cannot be interpreted
+    as an integer`（用户拖动 Web 控制台滑块后必现）。
+    这里用 get_type_hints() 解析真实类型。
+    """
     from dataclasses import fields
+    try:
+        from typing import get_type_hints
+        hints = get_type_hints(Tuning)
+    except Exception:
+        hints = {}
     t = Tuning()
     fmap = {f.name: f for f in fields(Tuning)}
     for k in TUNING_FIELDS:
         if k not in d or k not in fmap:
             continue
         try:
-            if fmap[k].type is int:
-                setattr(t, k, int(d[k]))
-            else:
-                setattr(t, k, float(d[k]))
+            # 优先取解析后的真实类型，退回字符串注解比较
+            want_int = hints.get(k) is int or str(fmap[k].type).strip() == "int"
+            val = float(d[k])
+            setattr(t, k, int(round(val)) if want_int else val)
         except (TypeError, ValueError):
             pass
     return t

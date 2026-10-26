@@ -213,7 +213,10 @@ def simulate_drop(field: Field, start_x: float, radius: float,
     it = 0
     no_move_steps = 0
     prev_x, prev_y = x, y
-    while it < tuning.sim_max_iter:
+    # 防御：sim_max_iter 若来自 JSON/前端可能为 float，比较虽能工作，
+    # 但统一取整避免后续任何 range/切片使用时报类型错误。
+    max_iter = max(1, int(tuning.sim_max_iter))
+    while it < max_iter:
         it += 1
 
         # 静止检测（要够严，避免水果停在斜坡暂态点）：
@@ -574,7 +577,7 @@ def settle_merges(field: Field, max_rounds: int = 6,
     """
     tol = MERGE_TOLERANCE if tolerance is None else tolerance
     fruits = list(field.fruits)
-    for _ in range(max_rounds):
+    for _ in range(max(0, int(max_rounds))):
         out = []
         used = [False] * len(fruits)
         merged_any = False
@@ -675,7 +678,7 @@ def _future_chain_score(field: Field, levels, tuning: Tuning,
         lo, hi = -half + r, half - r
         if hi <= lo:
             break
-        n_cand = max(2, coarse)
+        n_cand = max(2, int(coarse))
         new_beam = []
         for f0, s0, pmax in beam:
             prev_max = _max_level(f0)
@@ -745,15 +748,20 @@ def choose_drop_x(field: Field, level: int, tuning: Tuning | None = None,
     # simulate_drop 优化后单次决策仅约 30ms（投放间隔 550ms），
     # 因此序列可用时能放开前瞻深度——深度是「按序列预判冲 11 级」的关键。
     have_seq = bool(future_levels)
+    # ⚠️ samples 可能来自前端 JSON 而被反序列化为 float（如 96.0）；
+    # 直接 `tuning.samples // 3` 会得到 float，最终在 range() 处抛
+    # TypeError: 'float' object cannot be interpreted as an integer。此处强制取整。
+    samples = max(1, int(tuning.samples))
+    depth_max = max(0, int(future_depth))
     if fcount > 24:
-        n = max(16, tuning.samples // 3)
+        n = max(16, samples // 3)
         depth, top_k, coarse = (2 if have_seq else 0), 8, 4
     elif fcount > 12:
-        n = max(16, tuning.samples // 2)
+        n = max(16, samples // 2)
         depth, top_k, coarse = (3 if have_seq else 1), 10, 4
     else:
-        n = max(16, tuning.samples)
-        depth, top_k, coarse = min(future_depth, 4), 12, 5
+        n = max(16, samples)
+        depth, top_k, coarse = min(depth_max, 4), 12, 5
 
     # 两阶段采样：先在全场粗搜，再对最优的几个点做局部细化。
     # 比单纯提高均匀采样点数更快，且不漏掉窄缝里的好落点。
